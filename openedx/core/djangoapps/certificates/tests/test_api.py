@@ -7,15 +7,23 @@ from datetime import datetime
 import ddt
 import pytz
 from django.test import TestCase
+from unittest.mock import patch
 from edx_toggles.toggles import LegacyWaffleSwitch
 from edx_toggles.toggles.testutils import override_waffle_switch
 
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
+from lms.djangoapps.grades.api import CourseGradeFactory
 from openedx.core.djangoapps.certificates import api
 from openedx.core.djangoapps.certificates.config import waffle as certs_waffle
 from openedx.core.djangoapps.content.course_overviews.tests.factories import CourseOverviewFactory
 from xmodule.data import CertificatesDisplayBehaviors
+from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
+
+
+ALLOWLISTED_METHOD = 'openedx.core.djangoapps.certificates.api.certs_api.is_on_allowlist'
+BETA_TESTER_METHOD = 'openedx.core.djangoapps.certificates.api.access.is_beta_tester'
+CERTS_VIEWABLE_METHOD = 'openedx.core.djangoapps.certificates.api.certs_api.certificates_viewable_for_course'
 
 
 # TODO: Copied from lms.djangoapps.certificates.models,
@@ -178,3 +186,33 @@ class CertificatesApiTestCase(TestCase):
             maybe_avail = self.course.certificate_available_date if uses_avail_date else self.certificate.modified_date
             assert maybe_avail == api.available_date_for_certificate(self.course, self.certificate)
             assert self.certificate.modified_date == api.display_date_for_certificate(self.course, self.certificate)
+
+
+@ddt.ddt
+class CertificatesMessagingTestCase(ModuleStoreTestCase):
+    """
+    API tests for certificate messaging
+    """
+    def setUp(self):
+        super().setUp()
+        self.course = CourseOverviewFactory.create()
+        self.course_run_key = self.course.id
+        self.user = UserFactory.create()
+        self.enrollment = CourseEnrollmentFactory(
+            user=self.user,
+            course_id=self.course_run_key,
+            is_active=True,
+            mode=CourseMode.VERIFIED,
+        )
+
+    def test_beta_tester(self):
+        grade = CourseGradeFactory().read(self.user, self.course)
+        certs_enabled = True
+
+        with patch(ALLOWLISTED_METHOD, return_value=True):
+            with patch(CERTS_VIEWABLE_METHOD, return_value=True):
+                with patch(BETA_TESTER_METHOD, return_value=False):
+                    assert api.can_show_certificate_message(self.course, self.user, grade, certs_enabled)
+
+                with patch(BETA_TESTER_METHOD, return_value=True):
+                    assert not api.can_show_certificate_message(self.course, self.user, grade, certs_enabled)
