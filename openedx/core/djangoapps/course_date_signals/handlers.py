@@ -91,13 +91,25 @@ def _get_custom_pacing_children(subsection, num_weeks):
     Return relative date items for the subsection and its children
     """
     items = [subsection]
+    all_problems_are_ora = True
+    has_empty_unit = True
     section_date_items = []
     while items:
         next_item = items.pop()
+        if next_item.category != 'sequential' and next_item.category != 'vertical':
+            has_empty_unit = False
         # Open response assessment problems have their own due dates
         if next_item.category != 'openassessment':
             section_date_items.append((next_item.location, {'due': timedelta(weeks=num_weeks)}))
             items.extend(next_item.get_children())
+            if next_item.category != 'sequential' and next_item.category != 'vertical':
+                all_problems_are_ora = False
+
+    # if all the problems are ORA then we return an empty list
+    if all_problems_are_ora and not has_empty_unit:
+        return []
+
+    # if there are non ORA content problems or if there are no problems at all
     return section_date_items
 
 
